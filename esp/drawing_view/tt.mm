@@ -3,6 +3,7 @@
 #include "obfusheader.h"
 #import "tt.h"
 #import "../../sources/UIView+SecureView.h"
+#import <objc/runtime.h>
 
 // ─── CustomSliderView ─────────────────────────────────────────────────────────
 @interface CustomSliderView : UIView
@@ -307,13 +308,13 @@
     _aimbotTeamCheckmark  = [self addToggle:@(OBF("Team Check"))     atY:y action:@selector(aimbotTeamTapped)     enabled:aimbot_team_check];      y += 32;
 
     [self addSectionHeader:@(OBF("Smooth")) atY:y]; y += 26;
-    [self addSliderAtY:y label:&_smoothValueLabel slider:&_smoothSlider min:0 max:20 current:aimbot_smooth format:@"%.1f" onChange:^(float v){ aimbot_smooth = v; }]; y += 45;
+    _smoothValueLabel = [self addSliderAtY:y sliderOut:&_smoothSlider min:0 max:20 current:aimbot_smooth format:@"%.1f" onChange:^(float v){ aimbot_smooth = v; }]; y += 45;
 
     [self addSectionHeader:@(OBF("FOV")) atY:y]; y += 26;
-    [self addSliderAtY:y label:&_fovValueLabel slider:&_fovSlider min:10 max:300 current:aimbot_fov format:@"%.0f" onChange:^(float v){ aimbot_fov = v; }]; y += 45;
+    _fovValueLabel = [self addSliderAtY:y sliderOut:&_fovSlider min:10 max:300 current:aimbot_fov format:@"%.0f" onChange:^(float v){ aimbot_fov = v; }]; y += 45;
 
     [self addSectionHeader:@(OBF("Trigger Delay")) atY:y]; y += 26;
-    [self addSliderAtY:y label:&_triggerDelayValueLabel slider:&_triggerDelaySlider min:0.01 max:1.0 current:aimbot_trigger_delay format:@"%.2f" onChange:^(float v){ aimbot_trigger_delay = v; }]; y += 45;
+    _triggerDelayValueLabel = [self addSliderAtY:y sliderOut:&_triggerDelaySlider min:0.01 max:1.0 current:aimbot_trigger_delay format:@"%.2f" onChange:^(float v){ aimbot_trigger_delay = v; }]; y += 45;
 
     [self addSectionHeader:@(OBF("Bone")) atY:y]; y += 26;
     CGFloat cw = _aimContent.bounds.size.width;
@@ -512,12 +513,11 @@
     }
 }
 
-- (void)addSliderAtY:(CGFloat)y
-               label:(UILabel **)labelOut
-              slider:(CustomSliderView **)sliderOut
-                 min:(float)min max:(float)max current:(float)current
-              format:(NSString *)fmt
-            onChange:(void(^)(float))onChange {
+- (UILabel *)addSliderAtY:(CGFloat)y
+               sliderOut:(CustomSliderView *__strong *)sliderOut
+                     min:(float)min max:(float)max current:(float)current
+                  format:(NSString *)fmt
+                onChange:(void(^)(float))onChange {
     CGFloat w = _innerContent.bounds.size.width;
     UILabel *valLbl = [[UILabel alloc] initWithFrame:CGRectMake(w-60,y-24,50,20)];
     valLbl.textColor = [UIColor whiteColor];
@@ -525,7 +525,6 @@
     valLbl.textAlignment = NSTextAlignmentRight;
     valLbl.text = [NSString stringWithFormat:fmt, current];
     [_innerContent addSubview:valLbl];
-    if (labelOut) *labelOut = valLbl;
 
     CustomSliderView *sl = [[CustomSliderView alloc] initWithFrame:CGRectMake(15,y,w-30,30) min:min max:max current:current];
     __weak UILabel *weakLbl = valLbl;
@@ -535,6 +534,7 @@
     };
     [_innerContent addSubview:sl];
     if (sliderOut) *sliderOut = sl;
+    return valLbl;
 }
 
 // ─── Toggle actions — AIM ─────────────────────────────────────────────────────
