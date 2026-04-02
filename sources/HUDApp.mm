@@ -6,7 +6,10 @@
 //
 
 #import <notify.h>
-#import "rootless.h"
+// rootless.h заменён — PID_PATH уже NSString, ROOT_PATH_NS не нужен
+#ifndef ROOT_PATH_NS
+#define ROOT_PATH_NS(x) @x
+#endif
 #import <mach-o/dyld.h>
 #import <sys/utsname.h>
 #import <objc/runtime.h>
@@ -103,7 +106,7 @@ int main(int argc, char *argv[])
             pid_t pid = getpid();
 
             NSString *pidString = [NSString stringWithFormat:@"%d", pid];
-            [pidString writeToFile:ROOT_PATH_NS(PID_PATH)
+            [pidString writeToFile:PID_PATH
                         atomically:YES
                           encoding:NSUTF8StringEncoding
                              error:nil];
