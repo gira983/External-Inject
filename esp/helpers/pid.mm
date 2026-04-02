@@ -83,19 +83,22 @@ mach_port_t get_task_for_PID(pid_t pid)
 pid_t get_pid_by_name(const char *keyword)
 {
     int count = proc_listallpids(NULL, 0);
-    pid_t pids[count];
-    proc_listallpids(pids, sizeof(pids));
-    
+    if (count <= 0) return -1;
+    pid_t *pids = (pid_t *)malloc(count * sizeof(pid_t));
+    if (!pids) return -1;
+    proc_listallpids(pids, count * sizeof(pid_t));
+
     for (int i = 0; i < count; i++)
     {
         char name[1000];
         proc_name(pids[i], name, sizeof(name));
-        if (strcasestr(name, keyword) != NULL) // Ищем без учета регистра
+        if (strcasestr(name, keyword) != NULL)
         {
+            free(pids);
             return pids[i];
         }
     }
-    
+    free(pids);
     return -1;
 }
 
@@ -216,4 +219,3 @@ __attribute__((__annotate__("indibran_use_stack bcf_prob=100 bcf_junkasm bcf_jun
     free(image_infos);
     return 0;
 }
-
