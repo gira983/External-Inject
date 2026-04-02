@@ -1,0 +1,8 @@
+Package: com.gira983.ffexternal
+Name: FFExternal
+Version: 1.0
+Section: Tweaks
+Depends: firmware (>= 14.0)
+Architecture: iphoneos-arm64
+Author: gira983
+Description: Free Fire External ESP
