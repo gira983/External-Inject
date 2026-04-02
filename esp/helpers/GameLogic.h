@@ -40,8 +40,9 @@
 #define OFF_POOL_ITEM       0x20
 #define OFF_POOL_VAL        0x18
 // Aimbot
-#define OFF_ROTATION        0x53C   // m_AimRotation
-#define OFF_ROTATION2       0x172C  // m_CurrentAimRotation
+#define OFF_ROTATION          0x53C   // m_AimRotation
+#define OFF_ROTATION2         0x172C  // m_CurrentAimRotation
+#define OFF_CAMERA_TRANSFORM  0x318   // camera transform pointer
 // Attributes
 #define OFF_PLAYER_ATTRS    0x680
 
