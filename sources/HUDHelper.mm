@@ -8,7 +8,9 @@
 #import <cstdint>
 #import <spawn.h>
 #import <notify.h>
-#import "rootless.h"
+#ifndef ROOT_PATH_NS
+#define ROOT_PATH_NS(x) @x
+#endif
 #import <mach-o/dyld.h>
 
 #import "HUDHelper.h"
@@ -22,7 +24,7 @@ extern "C" int posix_spawnattr_set_persona_gid_np(const posix_spawnattr_t* __res
 
 BOOL IsHUDEnabled(void)
 {
-    NSString *pidString = [NSString stringWithContentsOfFile:ROOT_PATH_NS(PID_PATH)
+    NSString *pidString = [NSString stringWithContentsOfFile:PID_PATH
                                                     encoding:NSUTF8StringEncoding
                                                        error:nil];
 
@@ -64,7 +66,7 @@ void SetHUDEnabled(BOOL isEnabled)
     }
     else
     {
-        NSString *pidString = [NSString stringWithContentsOfFile:ROOT_PATH_NS(PID_PATH)
+        NSString *pidString = [NSString stringWithContentsOfFile:PID_PATH
                                                         encoding:NSUTF8StringEncoding
                                                            error:nil];
 
@@ -72,7 +74,7 @@ void SetHUDEnabled(BOOL isEnabled)
         {
             pid_t pid = (pid_t)[pidString intValue];
             kill(pid, SIGKILL);
-            unlink([ROOT_PATH_NS(PID_PATH) UTF8String]);
+            unlink([PID_PATH UTF8String]);
         }
     }
 }
