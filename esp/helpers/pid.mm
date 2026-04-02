@@ -94,8 +94,9 @@ pid_t get_pid_by_name(const char *keyword)
         proc_name(pids[i], name, sizeof(name));
         if (strcasestr(name, keyword) != NULL)
         {
+            pid_t result = pids[i];
             free(pids);
-            return pids[i];
+            return result;
         }
     }
     free(pids);
