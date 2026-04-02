@@ -36,8 +36,8 @@ $(APPLICATION_NAME)_CFLAGS += -Isources
 $(APPLICATION_NAME)_CFLAGS += -Isources/KIF
 $(APPLICATION_NAME)_CFLAGS += -Iesp/helpers
 $(APPLICATION_NAME)_CFLAGS += -Iesp/drawing_view
-$(APPLICATION_NAME)_CFLAGS += -DNOTIFY_DESTROY_HUD=\"\\\"com.gira983.ffexternal.hud.destroy\\\"\"
-$(APPLICATION_NAME)_CFLAGS += -DPID_PATH=\"@\\\"/var/mobile/Library/Caches/com.gira983.ffexternal.pid\\\"\"
+$(APPLICATION_NAME)_CFLAGS += -DNOTIFY_DESTROY_HUD="\"com.gira983.ffexternal.hud.destroy\""
+$(APPLICATION_NAME)_CFLAGS += -DPID_PATH="@\"/var/mobile/Library/Caches/com.gira983.ffexternal.pid\""
 
 $(APPLICATION_NAME)_FRAMEWORKS += CoreGraphics CoreServices QuartzCore IOKit UIKit AVFoundation AudioToolbox CoreMedia
 $(APPLICATION_NAME)_PRIVATE_FRAMEWORKS += BackBoardServices GraphicsServices SpringBoardServices
