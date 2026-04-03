@@ -1,208 +1,175 @@
 //
 //  RootViewController.mm
-//  TrollSpeed
-//
-//  Created by Lessica on 2024/1/24.
 //
 
 #import <notify.h>
-
 #import "HUDHelper.h"
 #import "MainApplication.h"
 #import "RootViewController.h"
 #import "UIApplication+Private.h"
 #import "../esp/drawing_view/obfusheader.h"
 
-static const CGFloat _gAuthorLabelBottomConstraintConstantCompact = -20.f;
-static const CGFloat _gAuthorLabelBottomConstraintConstantRegular = -80.f;
+@interface LSApplicationWorkspace : NSObject
++ (instancetype)defaultWorkspace;
+- (BOOL)openApplicationWithBundleID:(NSString *)bundleID;
+@end
 
 @implementation RootViewController {
     UIButton *mainButton;
-    UILabel *authorLabel;
-    UILabel *poweredByLabel;
+    UILabel  *tgLabel;
     UIImageView *iconImageView;
-    NSLayoutConstraint *authorLabelBottomConstraint;
     NSLayoutConstraint *mainButtonCenterYConstraint;
     BOOL isRemoteHUDActive;
 }
 
-- (BOOL)isHUDEnabled
-{
-    return IsHUDEnabled();
-}
-
-- (void)setHUDEnabled:(BOOL)enabled
-{
-    SetHUDEnabled(enabled);
-}
+- (BOOL)isHUDEnabled { return IsHUDEnabled(); }
+- (void)setHUDEnabled:(BOOL)enabled { SetHUDEnabled(enabled); }
 
 - (void)loadView {
     CGRect bounds = UIScreen.mainScreen.bounds;
-
     self.view = [[UIView alloc] initWithFrame:bounds];
-    self.view.backgroundColor = [UIColor whiteColor];  
+    self.view.backgroundColor = [UIColor blackColor];
 
     self.backgroundView = [[UIView alloc] initWithFrame:bounds];
     self.backgroundView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    self.backgroundView.backgroundColor = [UIColor whiteColor];  
+    self.backgroundView.backgroundColor  = [UIColor colorWithRed:0.05 green:0.05 blue:0.08 alpha:1];
     [self.view addSubview:self.backgroundView];
 
-   
+    // Gradient bg
+    CAGradientLayer *grad = [CAGradientLayer layer];
+    grad.frame  = bounds;
+    grad.colors = @[(id)[UIColor colorWithRed:0.05 green:0.05 blue:0.12 alpha:1].CGColor,
+                    (id)[UIColor colorWithRed:0.08 green:0.02 blue:0.15 alpha:1].CGColor];
+    grad.startPoint = CGPointMake(0, 0);
+    grad.endPoint   = CGPointMake(1, 1);
+    [self.backgroundView.layer insertSublayer:grad atIndex:0];
+
+    // Icon
     iconImageView = [[UIImageView alloc] init];
-    iconImageView.contentMode = UIViewContentModeScaleAspectFit;
-    iconImageView.layer.cornerRadius = 12.0f; 
-    iconImageView.layer.masksToBounds = YES;
-    iconImageView.backgroundColor = [UIColor clearColor]; 
+    iconImageView.contentMode     = UIViewContentModeScaleAspectFit;
+    iconImageView.layer.cornerRadius   = 20.f;
+    iconImageView.layer.masksToBounds  = YES;
     iconImageView.image = [UIImage imageNamed:@"icon.png"];
-    
-    
     [self.backgroundView addSubview:iconImageView];
 
+    // Run button
     mainButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [mainButton setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+    mainButton.layer.cornerRadius  = 14.f;
+    mainButton.layer.masksToBounds = YES;
+    mainButton.backgroundColor = [UIColor colorWithRed:0.3 green:0.1 blue:0.6 alpha:1];
+    [mainButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    mainButton.titleLabel.font = [UIFont boldSystemFontOfSize:24.f];
     [mainButton addTarget:self action:@selector(tapMainButton:) forControlEvents:UIControlEventTouchUpInside];
-    
-if (@available(iOS 15.0, *))
-{
-    UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
-    config.baseForegroundColor = [UIColor blackColor]; 
-    [config setTitleTextAttributesTransformer:^NSDictionary <NSAttributedStringKey, id> * _Nonnull(NSDictionary <NSAttributedStringKey, id> * _Nonnull textAttributes) {
-        NSMutableDictionary *newAttributes = [textAttributes mutableCopy];
-        [newAttributes setObject:[UIFont boldSystemFontOfSize:32.0] forKey:NSFontAttributeName];
-        return newAttributes;
-    }];
-    [config setCornerStyle:UIButtonConfigurationCornerStyleLarge];
-    [mainButton setConfiguration:config];
-}
-else
-{
-    [mainButton.titleLabel setFont:[UIFont boldSystemFontOfSize:32.0]];
-    [mainButton setBackgroundColor:[UIColor clearColor]]; 
-    [mainButton setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
-    mainButton.layer.cornerRadius = 8.0f;
-}
+    // Glow
+    mainButton.layer.shadowColor  = [UIColor colorWithRed:0.5 green:0.2 blue:1 alpha:1].CGColor;
+    mainButton.layer.shadowOffset = CGSizeZero;
+    mainButton.layer.shadowRadius = 12.f;
+    mainButton.layer.shadowOpacity= 0.7f;
     [self.backgroundView addSubview:mainButton];
 
-    UILabel *linkLabel = [[UILabel alloc] init];
-    linkLabel.text = @(OBF("t.me/ffexternal_free"));
-    linkLabel.textColor = [UIColor blackColor];
-    linkLabel.font = [UIFont systemFontOfSize:14.0f];
-    linkLabel.textAlignment = NSTextAlignmentCenter;
-    linkLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.backgroundView addSubview:linkLabel];
+    // iOS version label
+    UILabel *iosLbl = [[UILabel alloc] init];
+    iosLbl.text = [NSString stringWithFormat:@(OBF("iOS %@")), [[UIDevice currentDevice] systemVersion]];
+    iosLbl.textColor = [UIColor colorWithWhite:1 alpha:0.4];
+    iosLbl.font = [UIFont systemFontOfSize:13];
+    iosLbl.textAlignment = NSTextAlignmentCenter;
+    iosLbl.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.backgroundView addSubview:iosLbl];
 
-    UILabel *versionLabel = [[UILabel alloc] init];
-    versionLabel.text = [NSString stringWithFormat:@(OBF("iOS - %@")), [[UIDevice currentDevice] systemVersion]];
-    versionLabel.textColor = [UIColor blackColor];
-    versionLabel.font = [UIFont boldSystemFontOfSize:14.0f];
-    versionLabel.textAlignment = NSTextAlignmentCenter;
-    versionLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.backgroundView addSubview:versionLabel];
+    // Telegram label (кликабельный)
+    tgLabel = [[UILabel alloc] init];
+    tgLabel.text = @(OBF("t.me/g1reev7"));
+    tgLabel.textColor = [UIColor colorWithRed:0.5 green:0.7 blue:1 alpha:1];
+    tgLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
+    tgLabel.textAlignment = NSTextAlignmentCenter;
+    tgLabel.userInteractionEnabled = YES;
+    tgLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    UITapGestureRecognizer *tgTap = [[UITapGestureRecognizer alloc]
+        initWithTarget:self action:@selector(openTelegram)];
+    [tgLabel addGestureRecognizer:tgTap];
+    [self.backgroundView addSubview:tgLabel];
 
-    UILayoutGuide *safeArea = self.backgroundView.safeAreaLayoutGuide;
+    // Layout
+    iconImageView.translatesAutoresizingMaskIntoConstraints = NO;
+    mainButton.translatesAutoresizingMaskIntoConstraints    = NO;
 
-    [iconImageView setTranslatesAutoresizingMaskIntoConstraints:NO];
-    [mainButton setTranslatesAutoresizingMaskIntoConstraints:NO];
+    mainButtonCenterYConstraint = [mainButton.centerYAnchor
+        constraintEqualToAnchor:self.backgroundView.centerYAnchor constant:-20.f];
 
-    mainButtonCenterYConstraint = [mainButton.centerYAnchor constraintEqualToAnchor:self.backgroundView.centerYAnchor constant:-40.0f]; 
+    UILayoutGuide *safe = self.backgroundView.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
-      
-        [iconImageView.centerXAnchor constraintEqualToAnchor:safeArea.centerXAnchor],
-        [iconImageView.bottomAnchor constraintEqualToAnchor:mainButton.topAnchor constant:-30.0f],
-        [iconImageView.widthAnchor constraintEqualToConstant:80.0f],
-        [iconImageView.heightAnchor constraintEqualToConstant:80.0f],
-        
+        [iconImageView.centerXAnchor constraintEqualToAnchor:safe.centerXAnchor],
+        [iconImageView.bottomAnchor  constraintEqualToAnchor:mainButton.topAnchor constant:-28],
+        [iconImageView.widthAnchor   constraintEqualToConstant:90],
+        [iconImageView.heightAnchor  constraintEqualToConstant:90],
 
         mainButtonCenterYConstraint,
-        [mainButton.centerXAnchor constraintEqualToAnchor:safeArea.centerXAnchor],
-        [mainButton.widthAnchor constraintEqualToConstant:200.0f],
-        [mainButton.heightAnchor constraintEqualToConstant:60.0f],
+        [mainButton.centerXAnchor constraintEqualToAnchor:safe.centerXAnchor],
+        [mainButton.widthAnchor   constraintEqualToConstant:220],
+        [mainButton.heightAnchor  constraintEqualToConstant:58],
 
-        [linkLabel.topAnchor constraintEqualToAnchor:mainButton.bottomAnchor constant:8.0f],
-        [linkLabel.centerXAnchor constraintEqualToAnchor:safeArea.centerXAnchor],
+        [tgLabel.topAnchor    constraintEqualToAnchor:mainButton.bottomAnchor constant:16],
+        [tgLabel.centerXAnchor constraintEqualToAnchor:safe.centerXAnchor],
 
-        [versionLabel.topAnchor constraintEqualToAnchor:safeArea.topAnchor constant:10.0f],
-        [versionLabel.centerXAnchor constraintEqualToAnchor:safeArea.centerXAnchor],
+        [iosLbl.topAnchor     constraintEqualToAnchor:safe.topAnchor constant:12],
+        [iosLbl.centerXAnchor constraintEqualToAnchor:safe.centerXAnchor],
     ]];
 
-    [self verticalSizeClassUpdated];
     [self reloadMainButtonState];
-}
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        NSString *urlStr = @(OBF("https://t.me/ffexternal_free"));
-        NSURL *url = [NSURL URLWithString:urlStr];
-        [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+    // При открытии приложения — редирект в ТГ
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        [self openTelegram];
     });
 }
 
-- (void)reloadMainButtonState
-{
+- (void)openTelegram {
+    NSURL *url = [NSURL URLWithString:@(OBF("https://t.me/g1reev7"))];
+    [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+}
+
+- (void)reloadMainButtonState {
     isRemoteHUDActive = [self isHUDEnabled];
-
-    [mainButton setTitle:(isRemoteHUDActive ? @(OBF("Stop")) : @(OBF("Run"))) forState:UIControlStateNormal];
+    [mainButton setTitle:(isRemoteHUDActive ? @(OBF("Stop")) : @(OBF("Run")))
+               forState:UIControlStateNormal];
+    mainButton.backgroundColor = isRemoteHUDActive
+        ? [UIColor colorWithRed:0.6 green:0.1 blue:0.1 alpha:1]  // красный = Stop
+        : [UIColor colorWithRed:0.3 green:0.1 blue:0.6 alpha:1]; // фиолетовый = Run
 }
 
-- (void)tapAuthorLabel:(UITapGestureRecognizer *)sender
-{
-    
-}
-
-- (void)tapMainButton:(UIButton *)sender
-{
+- (void)tapMainButton:(UIButton *)sender {
     BOOL isNowEnabled = [self isHUDEnabled];
     [self setHUDEnabled:!isNowEnabled];
     isNowEnabled = !isNowEnabled;
 
-    if (isNowEnabled)
-    {
-        [self.backgroundView setUserInteractionEnabled:NO];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self reloadMainButtonState];
-                [self.backgroundView setUserInteractionEnabled:YES];
-            });
+    if (isNowEnabled) {
+        // Запустили HUD — открываем FF
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3*NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [[LSApplicationWorkspace defaultWorkspace]
+                openApplicationWithBundleID:@(OBF("com.dts.freefireth"))];
         });
     }
-    else
-    {
-        [self.backgroundView setUserInteractionEnabled:NO];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self reloadMainButtonState];
-            [self.backgroundView setUserInteractionEnabled:YES];
-        });
-    }
+
+    self.backgroundView.userInteractionEnabled = NO;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5*NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        [self reloadMainButtonState];
+        self.backgroundView.userInteractionEnabled = YES;
+    });
 }
 
-- (void)verticalSizeClassUpdated
-{
-    UIUserInterfaceSizeClass verticalClass = self.traitCollection.verticalSizeClass;
-    if (verticalClass == UIUserInterfaceSizeClassCompact) {
-        [mainButtonCenterYConstraint setConstant:-20.0f];
-    } else {
-        [mainButtonCenterYConstraint setConstant:-40.0f];
-    }
+- (void)traitCollectionDidChange:(UITraitCollection *)prev {
+    [super traitCollectionDidChange:prev];
+    UIUserInterfaceSizeClass vc = self.traitCollection.verticalSizeClass;
+    mainButtonCenterYConstraint.constant = (vc == UIUserInterfaceSizeClassCompact) ? -10 : -20;
 }
 
-- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection
-{
-    [self verticalSizeClassUpdated];
-}
-
-- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
-{
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
     [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
 }
 
