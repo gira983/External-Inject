@@ -32,6 +32,8 @@ extern volatile float aimbot_smooth;
 extern volatile float aimbot_fov;
 extern volatile float aimbot_trigger_delay;
 extern volatile int   aimbot_bone_index;
+extern volatile bool  aimbot_ignore_knocked; // не целиться в нокнутых
+extern volatile bool  aimbot_ignore_bot;     // не целиться в ботов
 
 extern volatile bool  esp_rcs_enabled;
 extern volatile float esp_rcs_h;
