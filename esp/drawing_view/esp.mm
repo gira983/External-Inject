@@ -210,7 +210,17 @@ static Vector3 FF_W2S(Vector3 obj, float *m, CGFloat w, CGFloat h) {
 
     if (ff_pid != cached_pid || !cached_task || !cached_base) {
         cached_task = get_task_by_pid(ff_pid);
-        if (cached_task) cached_base = get_image_base_address(cached_task, OBF("UnityFramework"));
+        if (cached_task) {
+            // Fryzz метод: mach_vm_region_recurse даёт первый регион = base FF
+            mach_vm_address_t vmoffset = 0;
+            mach_vm_size_t    vmsize   = 0;
+            uint32_t          depth    = 0;
+            struct vm_region_submap_info_64 vbr;
+            mach_msg_type_number_t vbrcount = 16;
+            kern_return_t kr = mach_vm_region_recurse(cached_task, &vmoffset, &vmsize,
+                                                      &depth, (vm_region_recurse_info_t)&vbr, &vbrcount);
+            if (kr == KERN_SUCCESS) cached_base = vmoffset;
+        }
         cached_pid = ff_pid;
     }
 
@@ -241,8 +251,10 @@ static Vector3 FF_W2S(Vector3 obj, float *m, CGFloat w, CGFloat h) {
         uint64_t plPtr   = Read<uint64_t>(match + OFF_PLAYERLIST, task);
         if (!plPtr || plPtr < 0x1000000) goto CLEAR;
         uint64_t plArr   = Read<uint64_t>(plPtr + OFF_PLAYERLIST_ARR, task);
-        int      plCount = Read<int>(plPtr + OFF_PLAYERLIST_CNT, task);
-        if (plCount <= 0 || plCount > 60 || !plArr) goto CLEAR;
+        if (!plArr || plArr < 0x1000000) goto CLEAR;
+        // Count читается из plArr (tValue), как в Fryzz
+        int plCount = Read<int>(plArr + OFF_PLAYERLIST_CNT, task);
+        if (plCount <= 0 || plCount > 64) plCount = 64;
 
         CGFloat w = self.bounds.size.width;
         CGFloat h = self.bounds.size.height;
