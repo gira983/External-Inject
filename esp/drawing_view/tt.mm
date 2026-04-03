@@ -181,6 +181,11 @@
     CAShapeLayer *_speedBoostCheckmark;
     CAShapeLayer *_damageBoostCheckmark;
     CAShapeLayer *_instantSkillsCheckmark;
+    // New
+    CAShapeLayer *_ignoreKnockedCheckmark;
+    CAShapeLayer *_ignoreBotCheckmark;
+    CAShapeLayer *_espIgnoreKnockedCheckmark;
+    CAShapeLayer *_espIgnoreBotCheckmark;
 
     // Config
     CGFloat _configListStartY;
@@ -306,6 +311,8 @@
     _visibleCheckCheckmark= [self addToggle:@(OBF("Visible Check"))  atY:y action:@selector(visibleCheckTapped)   enabled:aimbot_visible_check];   y += 32;
     _shootingCheckCheckmark=[self addToggle:@(OBF("Fire Check"))     atY:y action:@selector(shootingCheckTapped)  enabled:aimbot_shooting_check];  y += 32;
     _aimbotTeamCheckmark  = [self addToggle:@(OBF("Team Check"))     atY:y action:@selector(aimbotTeamTapped)     enabled:aimbot_team_check];      y += 32;
+    _ignoreKnockedCheckmark=[self addToggle:@(OBF("Ignore Knocked")) atY:y action:@selector(ignoreKnockedTapped) enabled:aimbot_ignore_knocked]; y += 32;
+    _ignoreBotCheckmark    =[self addToggle:@(OBF("Ignore Bot"))     atY:y action:@selector(ignoreBotAimTapped)  enabled:aimbot_ignore_bot];     y += 32;
 
     [self addSectionHeader:@(OBF("Smooth")) atY:y]; y += 26;
     _smoothValueLabel = [self addSliderAtY:y sliderOut:&_smoothSlider min:0 max:20 current:aimbot_smooth format:@"%.1f" onChange:^(float v){ aimbot_smooth = v; }]; y += 45;
@@ -356,6 +363,8 @@
     _speedBoostCheckmark   = [self addToggle:@(OBF("Speed Boost"))   atY:y action:@selector(speedBoostTapped)   enabled:esp_speed_boost];    y += 32;
     _damageBoostCheckmark  = [self addToggle:@(OBF("Damage x2"))     atY:y action:@selector(damageBoostTapped)  enabled:esp_damage_boost];   y += 32;
     _instantSkillsCheckmark= [self addToggle:@(OBF("Instant Skills"))atY:y action:@selector(instantSkillsTapped)enabled:esp_instant_skills]; y += 32;
+    _espIgnoreKnockedCheckmark=[self addToggle:@(OBF("Hide Knocked")) atY:y action:@selector(espIgnoreKnockedTapped) enabled:esp_ignore_knocked]; y += 32;
+    _espIgnoreBotCheckmark    =[self addToggle:@(OBF("Hide Bots"))    atY:y action:@selector(espIgnoreBotTapped)     enabled:esp_ignore_bot];     y += 32;
 
     _hackContent.frame = CGRectMake(0,0,_hackContent.bounds.size.width,y+10);
 
@@ -634,6 +643,12 @@
     [_fovSlider setValue:aimbot_fov];
     [_smoothSlider setValue:aimbot_smooth];
 }
+
+// ─── New toggle actions ──────────────────────────────────────────────────────
+- (void)ignoreKnockedTapped   { aimbot_ignore_knocked = !aimbot_ignore_knocked; [self animateCheckmark:_ignoreKnockedCheckmark    show:aimbot_ignore_knocked]; }
+- (void)ignoreBotAimTapped    { aimbot_ignore_bot     = !aimbot_ignore_bot;     [self animateCheckmark:_ignoreBotCheckmark         show:aimbot_ignore_bot];     }
+- (void)espIgnoreKnockedTapped{ esp_ignore_knocked    = !esp_ignore_knocked;    [self animateCheckmark:_espIgnoreKnockedCheckmark  show:esp_ignore_knocked];    }
+- (void)espIgnoreBotTapped    { esp_ignore_bot        = !esp_ignore_bot;        [self animateCheckmark:_espIgnoreBotCheckmark      show:esp_ignore_bot];        }
 
 // ─── Positioning ──────────────────────────────────────────────────────────────
 - (void)didMoveToSuperview { [super didMoveToSuperview]; [self centerMenu]; }
