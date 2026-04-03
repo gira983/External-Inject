@@ -55,6 +55,10 @@ void cfg_create(NSString *name) {
     d[@(OBF("aimbot_fov"))]             = @(aimbot_fov);
     d[@(OBF("aimbot_trigger_delay"))]   = @(aimbot_trigger_delay);
     d[@(OBF("aimbot_bone_index"))]      = @(aimbot_bone_index);
+    d[@(OBF("aimbot_ignore_knocked"))]  = @(aimbot_ignore_knocked);
+    d[@(OBF("aimbot_ignore_bot"))]      = @(aimbot_ignore_bot);
+    d[@(OBF("esp_ignore_knocked"))]     = @(esp_ignore_knocked);
+    d[@(OBF("esp_ignore_bot"))]         = @(esp_ignore_bot);
 
     [d writeToFile:path atomically:YES];
 }
@@ -96,6 +100,10 @@ void cfg_load(NSString *name) {
     LOAD_FLOAT("aimbot_fov",            aimbot_fov)
     LOAD_FLOAT("aimbot_trigger_delay",  aimbot_trigger_delay)
     LOAD_INT("aimbot_bone_index",       aimbot_bone_index)
+    LOAD_BOOL("aimbot_ignore_knocked",  aimbot_ignore_knocked)
+    LOAD_BOOL("aimbot_ignore_bot",      aimbot_ignore_bot)
+    LOAD_BOOL("esp_ignore_knocked",     esp_ignore_knocked)
+    LOAD_BOOL("esp_ignore_bot",         esp_ignore_bot)
 
     #undef LOAD_BOOL
     #undef LOAD_FLOAT
