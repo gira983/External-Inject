@@ -36,6 +36,10 @@ volatile float aimbot_smooth         = 5.0f;
 volatile float aimbot_fov            = 150.0f;
 volatile float aimbot_trigger_delay  = 0.1f;
 volatile int   aimbot_bone_index     = 0;
+volatile bool  aimbot_ignore_knocked = true;  // не целиться в нокнутых
+volatile bool  aimbot_ignore_bot     = true;  // не целиться в ботов
+volatile bool  esp_ignore_knocked    = false; // скрыть нокнутых из ESP
+volatile bool  esp_ignore_bot        = false; // скрыть ботов из ESP
 volatile bool  esp_rcs_enabled       = false;
 volatile float esp_rcs_h             = 0.0f;
 volatile float esp_rcs_v             = 0.0f;
@@ -509,35 +513,62 @@ CLEAR:
 }
 
 // ─── Aimbot ───────────────────────────────────────────────────────────────────
+// FF хранит rotation как Unity Quaternion.
+// Правильная формула: LookRotation от камеры к цели.
 - (void)applyAimbot:(uint64_t)me target:(Vector3)target task:(task_t)task {
     uint64_t camT  = Read<uint64_t>(me + OFF_CAMERA_TRANSFORM, task);
     Vector3  camPos = camT > 0x1000000 ? ff_getPosition(camT, task) : (Vector3){0,0,0};
 
-    float dx = target.x-camPos.x, dy = target.y-camPos.y, dz = target.z-camPos.z;
-    float dist = sqrtf(dx*dx+dy*dy+dz*dz);
+    // Вектор направления от камеры к цели
+    float dx = target.x - camPos.x;
+    float dy = target.y - camPos.y;
+    float dz = target.z - camPos.z;
+    float dist = sqrtf(dx*dx + dy*dy + dz*dz);
     if (dist < 0.001f) return;
 
-    float tPitch = -asinf(dy/dist) * (180.f/M_PI);
-    float tYaw   =  atan2f(dx, dz) * (180.f/M_PI);
+    // Normalize
+    dx /= dist; dy /= dist; dz /= dist;
 
-    static float cPitch=0, cYaw=0;
+    // Pitch и Yaw из направления
+    float targetPitch = -asinf(fmaxf(-1.f, fminf(1.f, dy))) * (180.f/M_PI);
+    float targetYaw   =  atan2f(dx, dz) * (180.f/M_PI);
+
+    // Читаем текущие углы из памяти чтобы плавно интерполировать
+    // OFF_ROTATION хранит Quaternion, переводим в Euler
+    Quaternion curQ = Read<Quaternion>(me + OFF_ROTATION, task);
+    // Quaternion → Yaw (Y-rotation)
+    float sinYaw   = 2.f*(curQ.w*curQ.y + curQ.z*curQ.x);
+    float cosYaw   = 1.f - 2.f*(curQ.y*curQ.y + curQ.z*curQ.z);
+    float curYaw   = atan2f(sinYaw, cosYaw) * (180.f/M_PI);
+    // Quaternion → Pitch (X-rotation)
+    float sinPitch = 2.f*(curQ.w*curQ.x - curQ.y*curQ.z);
+    float curPitch = asinf(fmaxf(-1.f, fminf(1.f, sinPitch))) * (180.f/M_PI);
+
+    // Smooth интерполяция
+    float newPitch, newYaw;
     if (aimbot_smooth <= 1.0f) {
-        cPitch = fmaxf(-89.f, fminf(89.f, tPitch));
-        cYaw   = tYaw;
+        newPitch = fmaxf(-89.f, fminf(89.f, targetPitch));
+        newYaw   = targetYaw;
     } else {
-        float s  = fmaxf(0.03f, fminf(1.0f / (1.0f + aimbot_smooth*0.5f), 1.0f));
-        float dp = tPitch - cPitch;
-        float dy2= tYaw   - cYaw;
+        float s  = fmaxf(0.04f, fminf(1.0f / (1.0f + aimbot_smooth * 0.4f), 1.0f));
+        float dp = targetPitch - curPitch;
+        float dy2= targetYaw   - curYaw;
+        // Нормализуем угловую разницу [-180, 180]
         while (dy2 >  180.f) dy2 -= 360.f;
         while (dy2 < -180.f) dy2 += 360.f;
-        cPitch = fmaxf(-89.f, fminf(89.f, cPitch + dp*s));
-        cYaw   = cYaw + dy2*s;
+        newPitch = fmaxf(-89.f, fminf(89.f, curPitch + dp  * s));
+        newYaw   = curYaw + dy2 * s;
     }
 
-    float pr = cPitch*(M_PI/180.f)*0.5f;
-    float yr = cYaw  *(M_PI/180.f)*0.5f;
-    Quaternion rot = {sinf(pr)*cosf(yr), cosf(pr)*sinf(yr),
-                     -sinf(pr)*sinf(yr), cosf(pr)*cosf(yr)};
+    // Euler → Quaternion (только Pitch + Yaw, Roll = 0)
+    float pitchRad = newPitch * (M_PI/180.f) * 0.5f;
+    float yawRad   = newYaw   * (M_PI/180.f) * 0.5f;
+    Quaternion rot;
+    rot.x =  sinf(pitchRad) * cosf(yawRad);
+    rot.y =  cosf(pitchRad) * sinf(yawRad);
+    rot.z = -sinf(pitchRad) * sinf(yawRad);
+    rot.w =  cosf(pitchRad) * cosf(yawRad);
+
     Write<Quaternion>(me + OFF_ROTATION,  rot, task);
     Write<Quaternion>(me + OFF_ROTATION2, rot, task);
 }
