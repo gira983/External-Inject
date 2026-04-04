@@ -193,7 +193,7 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
     [self startBackgroundKeeper];
 
     self.displayLinkData = [CADisplayLink displayLinkWithTarget:self selector:@selector(update_data)];
-    self.displayLinkData.preferredFramesPerSecond = 120;
+    self.displayLinkData.preferredFramesPerSecond = 30;
     [self.displayLinkData addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     [self showViewForCapture];
     return self;
@@ -302,13 +302,18 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
         uint64_t camT  = Read<uint64_t>(localPlayer + OFF_CAMERA_TRANSFORM, task);
         Vector3  myPos = (camT > 0x1000000) ? ff_getPosition(camT, task) : (Vector3){0,0,0};
 
-        // ── Client hacks ──────────────────────────────────────────────
-        uint64_t attrs = Read<uint64_t>(localPlayer + OFF_PLAYER_ATTRS, task);
-        if (attrs > 0x1000000) {
-            if (esp_inf_ammo)     { Write<bool>(attrs+0xC9,true,task); Write<bool>(attrs+0xC8,true,task); }
-            if (esp_speed_boost)    Write<float>(attrs+0x250, 1.8f, task);
-            if (esp_damage_boost)   Write<float>(attrs+0x118, 2.0f, task);
-            if (esp_instant_skills) Write<float>(attrs+0x188, 0.99f, task);
+        // ── Client hacks — пишем раз в секунду, не каждый кадр ─────
+        static double lastHackWrite = 0;
+        double nowHack = CACurrentMediaTime();
+        if (nowHack - lastHackWrite > 1.0) {
+            lastHackWrite = nowHack;
+            uint64_t attrs = Read<uint64_t>(localPlayer + OFF_PLAYER_ATTRS, task);
+            if (attrs > 0x1000000) {
+                if (esp_inf_ammo)     { Write<bool>(attrs+0xC9,true,task); Write<bool>(attrs+0xC8,true,task); }
+                if (esp_speed_boost)    Write<float>(attrs+0x250, 1.8f, task);
+                if (esp_damage_boost)   Write<float>(attrs+0x118, 2.0f, task);
+                if (esp_instant_skills) Write<float>(attrs+0x188, 0.99f, task);
+            }
         }
 
         // ── Player list ───────────────────────────────────────────────
@@ -546,11 +551,15 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
         [CATransaction commit];
         [CATransaction flush];
 
-        // ── Aimbot ────────────────────────────────────────────────────
-        if (closestPlayer && (aimbot_enabled || aimbot_triggerbot))
+        // ── Aimbot — throttle 50ms чтобы не банило ──────────────────
+        static double lastAimWrite = 0;
+        double nowAim = CACurrentMediaTime();
+        if (closestPlayer && (aimbot_enabled || aimbot_triggerbot) && nowAim - lastAimWrite > 0.05) {
+            lastAimWrite = nowAim;
             [self runAimbot:localPlayer target:closestPlayer targetPos:closestPos task:task matrix:matrix w:w h:h];
-        else
+        } else if (!closestPlayer) {
             self.aimbotCurrentTarget = 0;
+        }
 
         self.watermarkLabel.text = [NSString stringWithFormat:@(OBF("Players: %d | t.me/g1reev7")), validPlayers];
         [self.watermarkLabel sizeToFit];
@@ -632,8 +641,9 @@ CLEAR_BOXES:
     rot.z = -sinf(pr)*sinf(yr);
     rot.w =  cosf(pr)*cosf(yr);
 
-    Write<Quaternion>(me + OFF_ROTATION,  rot, task);
-    Write<Quaternion>(me + OFF_ROTATION2, rot, task);
+    // Пишем только камеру (OFF_ROTATION), не пулю (OFF_ROTATION2)
+    // OFF_ROTATION2 верифицируется сервером — писать туда = бан
+    Write<Quaternion>(me + OFF_ROTATION, rot, task);
 
     self.aimbotCurrentTarget    = target;
     self.aimbotLastWriteTime    = CACurrentMediaTime();
