@@ -50,12 +50,7 @@ mach_vm_read_overwrite(
                        mach_vm_size_t     *outsize);
 
 
-extern kern_return_t
-mach_vm_write(
-              vm_map_t                          map,
-              mach_vm_address_t                 address,
-              pointer_t                         data,
-              __unused mach_msg_type_number_t   size);
+
 
 extern kern_return_t
 mach_vm_region_recurse(
@@ -134,13 +129,6 @@ T Read(uintptr_t address, task_t task)
     return data;
 }
 
-template<typename T>
-void Write(uintptr_t address, T data, task_t task)
-{
-    if (address <= 0 || address > 100000000000)
-        return;
 
-    mach_vm_write(task, address, (pointer_t)&data, sizeof(T));
-}
 
 #endif /* Injector_h */
