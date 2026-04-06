@@ -44,3 +44,11 @@ extern volatile float esp_rcs_h;
 extern volatile float esp_rcs_v;
 extern volatile bool  esp_auto_load;
 extern NSString      *esp_selected_config;
+
+// ── New ESP features ──────────────────────────────────────────────────────────
+extern volatile bool esp_snapline_enabled;
+extern volatile bool esp_box_hp_color;
+extern volatile bool esp_knocked_status;
+extern volatile bool esp_inventory_enabled;
+extern volatile bool esp_skills_enabled;
+extern volatile bool esp_dist_label;
