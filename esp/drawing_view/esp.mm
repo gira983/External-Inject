@@ -45,6 +45,14 @@ volatile float esp_rcs_v             = 0.0f;
 volatile bool  esp_auto_load         = false;
 NSString      *esp_selected_config   = nil;
 
+// ─── New ESP feature flags ────────────────────────────────────────────────────
+volatile bool esp_snapline_enabled   = false;  // линия от низа экрана к ногам
+volatile bool esp_box_hp_color       = true;   // цвет бокса по HP (зелёный→красный)
+volatile bool esp_knocked_status     = true;   // показывать KNOCKED над боксом
+volatile bool esp_inventory_enabled  = true;   // шлем/броня/оружие/патроны/гранаты
+volatile bool esp_skills_enabled     = false;  // навыки персонажа + КД
+volatile bool esp_dist_label         = true;   // дистанция над боксом
+
 #import "../../esp/helpers/pid.h"
 #import "../../esp/helpers/GameLogic.h"
 #import "../../esp/helpers/Vector3.h"
@@ -89,10 +97,17 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
 @property (nonatomic, strong) CAShapeLayer      *fovCircleLayer;
 @property (nonatomic, strong) CAShapeLayer      *fovCircleOutlineLayer;
 @property (nonatomic, assign) uint64_t          aimbotCurrentTarget;
-@property (nonatomic, assign) double            aimbotLastWriteTime;
 @property (nonatomic, assign) BOOL              triggerbotShooting;
 @property (nonatomic, assign) double            triggerbotLastShotTime;
 @property (nonatomic, assign) BOOL              isESPCountEnabled;
+// ── New label pools ───────────────────────────────────────────────────────────
+@property (nonatomic, strong) NSMutableArray<UILabel *> *distLabelPool;
+@property (nonatomic, strong) NSMutableArray<UILabel *> *inventoryLabelPool;
+@property (nonatomic, strong) NSMutableArray<UILabel *> *skillLabelPool;
+@property (nonatomic, strong) NSMutableArray<UILabel *> *statusLabelPool;
+// Snapline layer
+@property (nonatomic, strong) CAShapeLayer      *snapLineLayer;
+@property (nonatomic, strong) CAShapeLayer      *snapLineOutlineLayer;
 @end
 
 @implementation ESP_View
@@ -177,8 +192,25 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
 
     self.nameLabelPool   = [NSMutableArray new];
     self.healthLabelPool = [NSMutableArray new];
+    self.distLabelPool      = [NSMutableArray new];
+    self.inventoryLabelPool = [NSMutableArray new];
+    self.skillLabelPool     = [NSMutableArray new];
+    self.statusLabelPool    = [NSMutableArray new];
+
+    // Snapline layers
+    self.snapLineOutlineLayer = [CAShapeLayer layer];
+    self.snapLineOutlineLayer.strokeColor = [UIColor colorWithWhite:0 alpha:0.6].CGColor;
+    self.snapLineOutlineLayer.fillColor   = [UIColor clearColor].CGColor;
+    self.snapLineOutlineLayer.lineWidth   = 3.0;
+    [self.layer addSublayer:self.snapLineOutlineLayer];
+
+    self.snapLineLayer = [CAShapeLayer layer];
+    self.snapLineLayer.strokeColor = [UIColor colorWithRed:0.2 green:0.8 blue:1.0 alpha:0.7].CGColor;
+    self.snapLineLayer.fillColor   = [UIColor clearColor].CGColor;
+    self.snapLineLayer.lineWidth   = 1.0;
+    [self.layer addSublayer:self.snapLineLayer];
+
     self.aimbotCurrentTarget    = 0;
-    self.aimbotLastWriteTime    = 0;
     self.triggerbotShooting     = NO;
     self.triggerbotLastShotTime = 0;
 
@@ -229,10 +261,16 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
     self.espLineOutlineLayer.path     = nil;
     self.espHealthBarLayer.path       = nil;
     self.espHealthBarOutlineLayer.path= nil;
+    self.snapLineLayer.path           = nil;
+    self.snapLineOutlineLayer.path    = nil;
     self.fovCircleLayer.hidden        = YES;
     self.fovCircleOutlineLayer.hidden = YES;
-    for (UILabel *l in self.nameLabelPool)   l.hidden = YES;
-    for (UILabel *l in self.healthLabelPool) l.hidden = YES;
+    for (UILabel *l in self.nameLabelPool)       l.hidden = YES;
+    for (UILabel *l in self.healthLabelPool)     l.hidden = YES;
+    for (UILabel *l in self.distLabelPool)       l.hidden = YES;
+    for (UILabel *l in self.inventoryLabelPool)  l.hidden = YES;
+    for (UILabel *l in self.skillLabelPool)      l.hidden = YES;
+    for (UILabel *l in self.statusLabelPool)     l.hidden = YES;
 }
 
 // ─── Main update ──────────────────────────────────────────────────────────────
@@ -302,20 +340,6 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
         uint64_t camT  = Read<uint64_t>(localPlayer + OFF_CAMERA_TRANSFORM, task);
         Vector3  myPos = (camT > 0x1000000) ? ff_getPosition(camT, task) : (Vector3){0,0,0};
 
-        // ── Client hacks — пишем раз в секунду, не каждый кадр ─────
-        static double lastHackWrite = 0;
-        double nowHack = CACurrentMediaTime();
-        if (nowHack - lastHackWrite > 1.0) {
-            lastHackWrite = nowHack;
-            uint64_t attrs = Read<uint64_t>(localPlayer + OFF_PLAYER_ATTRS, task);
-            if (attrs > 0x1000000) {
-                if (esp_inf_ammo)     { Write<bool>(attrs+0xC9,true,task); Write<bool>(attrs+0xC8,true,task); }
-                if (esp_speed_boost)    Write<float>(attrs+0x250, 1.8f, task);
-                if (esp_damage_boost)   Write<float>(attrs+0x118, 2.0f, task);
-                if (esp_instant_skills) Write<float>(attrs+0x188, 0.99f, task);
-            }
-        }
-
         // ── Player list ───────────────────────────────────────────────
         uint64_t plPtr = Read<uint64_t>(match + OFF_PLAYERLIST, task);
         if (!plPtr || plPtr < 0x1000000) goto CLEAR_BOXES;
@@ -329,13 +353,13 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
         if (w < 10) w = [UIScreen mainScreen].bounds.size.width;
         if (h < 10) h = [UIScreen mainScreen].bounds.size.height;
 
-        // ── FOV circle (EzTap style) ──────────────────────────────────
+        // ── FOV circle ────────────────────────────────────────────────
         [CATransaction begin]; [CATransaction setDisableActions:YES];
         if (aimbot_fov_visible) {
             CGPoint center = CGPointMake(w/2, h/2);
             CGFloat radius = aimbot_fov;
-            CGRect  cr     = CGRectMake(center.x-radius, center.y-radius, radius*2, radius*2);
-            UIBezierPath *fp = [UIBezierPath bezierPathWithOvalInRect:cr];
+            UIBezierPath *fp = [UIBezierPath bezierPathWithOvalInRect:
+                CGRectMake(center.x-radius, center.y-radius, radius*2, radius*2)];
             self.fovCircleOutlineLayer.path = fp.CGPath;
             self.fovCircleLayer.path        = fp.CGPath;
             self.fovCircleOutlineLayer.hidden = NO;
@@ -346,33 +370,44 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
         }
         [CATransaction commit];
 
-        // ── ESP paths (EzTap exact) ───────────────────────────────────
+        // ── ESP paths ─────────────────────────────────────────────────
         BOOL drawBoxes = esp_box_enabled || esp_box_fill || esp_box_corner;
         BOOL drawLines = esp_line_enabled;
 
-        UIBezierPath *boxPath        = [UIBezierPath bezierPath];
-        UIBezierPath *boxFillPath    = [UIBezierPath bezierPath];
-        UIBezierPath *boxOutlinePath = [UIBezierPath bezierPath];
-        UIBezierPath *linesPath      = [UIBezierPath bezierPath];
-        UIBezierPath *lineOutlinePath= [UIBezierPath bezierPath];
-        UIBezierPath *hpBarPath      = [UIBezierPath bezierPath];
-        UIBezierPath *hpBarOutPath   = [UIBezierPath bezierPath];
+        UIBezierPath *boxPath         = [UIBezierPath bezierPath];
+        UIBezierPath *boxFillPath     = [UIBezierPath bezierPath];
+        UIBezierPath *boxOutlinePath  = [UIBezierPath bezierPath];
+        UIBezierPath *linesPath       = [UIBezierPath bezierPath];
+        UIBezierPath *lineOutlinePath = [UIBezierPath bezierPath];
+        UIBezierPath *hpBarPath       = [UIBezierPath bezierPath];
+        UIBezierPath *hpBarOutPath    = [UIBezierPath bezierPath];
+        UIBezierPath *snapPath        = [UIBezierPath bezierPath];
+        UIBezierPath *snapOutPath     = [UIBezierPath bezierPath];
 
-        NSUInteger nameIdx = 0, hpIdx = 0;
-        for (UILabel *l in self.nameLabelPool)   l.hidden = YES;
-        for (UILabel *l in self.healthLabelPool) l.hidden = YES;
+        NSUInteger nameIdx = 0, hpIdx = 0, distIdx = 0, invIdx = 0, skillIdx = 0, statusIdx = 0;
+        for (UILabel *l in self.nameLabelPool)       l.hidden = YES;
+        for (UILabel *l in self.healthLabelPool)     l.hidden = YES;
+        for (UILabel *l in self.distLabelPool)       l.hidden = YES;
+        for (UILabel *l in self.inventoryLabelPool)  l.hidden = YES;
+        for (UILabel *l in self.skillLabelPool)      l.hidden = YES;
+        for (UILabel *l in self.statusLabelPool)     l.hidden = YES;
 
         int validPlayers = 0;
         CGFloat cx = w/2, cy = h/2;
-        float closestDist   = FLT_MAX;
+        float closestDist    = FLT_MAX;
         uint64_t closestPlayer = 0;
         Vector3  closestPos    = {0,0,0};
+
+        // Helper macro for label from pool
+        #define LABEL_FROM_POOL(pool, idx) \
+            (idx < pool.count ? pool[idx] : \
+            (^{ UILabel *_n=[[UILabel alloc]init]; _n.userInteractionEnabled=NO; \
+                [self addSubview:_n]; [pool addObject:_n]; return _n; }()))
 
         for (int i = 0; i < total; i++) {
             uint64_t player = Read<uint64_t>(tVal + OFF_PLAYERLIST_ITEM + 8*i, task);
             if (!player || player < 0x1000000 || player == localPlayer) continue;
 
-            // Team check
             if (esp_team_check && ff_isTeammate(localPlayer, player, task)) continue;
 
             int curHP = ff_getCurHP(player, task);
@@ -380,21 +415,17 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
             if (maxHP <= 0) continue;
 
             bool knocked = (curHP <= 0);
-
-            // Ignore knocked
             if (esp_ignore_knocked && knocked) continue;
 
-            // Bot detection — у ботов FF нет записи в PropertyData pool
+            // Bot check
             bool isBot = false;
-            if (esp_ignore_bot || aimbot_ignore_bot) {
-                // Боты: ID команды и значения HP берутся из пула
-                // Простая проверка: если оба HP = 0 и maxHP стандартный = бот
-                uint64_t pool = Read<uint64_t>(player + OFF_IPRIDATAPOOL, task);
-                isBot = (pool < 0x1000000); // нет пула данных = бот
+            {
+                uint64_t pool2 = Read<uint64_t>(player + OFF_IPRIDATAPOOL, task);
+                isBot = (pool2 < 0x1000000);
             }
             if (esp_ignore_bot && isBot) continue;
 
-            // Head + foot positions
+            // ── Positions ─────────────────────────────────────────────
             uint64_t headNode = ff_getHead(player, task);
             if (!headNode || headNode < 0x1000000) continue;
             Vector3 headPos = ff_getPosition(headNode, task);
@@ -406,9 +437,9 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
                 : (Vector3){headPos.x, headPos.y - 1.7f, headPos.z};
 
             Vector3 topPos = headPos; topPos.y += 0.18f;
-            Vector3 sTop  = WorldToScreen(topPos, matrix, w, h);
-            Vector3 sFoot = WorldToScreen(footPos, matrix, w, h);
-            Vector3 sHead = WorldToScreen(headPos, matrix, w, h);
+            Vector3 sTop   = WorldToScreen(topPos, matrix, w, h);
+            Vector3 sFoot  = WorldToScreen(footPos, matrix, w, h);
+            Vector3 sHead  = WorldToScreen(headPos, matrix, w, h);
 
             if (sTop.z <= 0) continue;
             if (sTop.x < -200 || sTop.x > w+200 || sTop.y < -200 || sTop.y > h+200) continue;
@@ -422,61 +453,99 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
             float bw = bh / 2.0f;
             validPlayers++;
 
-            // ── BOX (EzTap exact) ─────────────────────────────────────
+            // ── Read full info (inventory + skills) ───────────────────
+            FFPlayerInfo pInfo;
+            pInfo.curHP = curHP; pInfo.maxHP = maxHP;
+            pInfo.isKnocked = knocked; pInfo.isBot = isBot;
+            if (esp_inventory_enabled || esp_skills_enabled)
+                ff_readPlayerInfo(player, localPlayer, task, pInfo);
+
+            // ── HP colour for box (green → yellow → red) ──────────────
+            CGColorRef boxColor = [UIColor whiteColor].CGColor;
+            if (esp_box_hp_color && maxHP > 0) {
+                float ratio = fmaxf(0.f, fminf(1.f, (float)curHP / maxHP));
+                // ratio 1.0 = green, 0.5 = yellow, 0.0 = red
+                float r = fminf(1.f, 2.f * (1.f - ratio));
+                float g = fminf(1.f, 2.f * ratio);
+                boxColor = [UIColor colorWithRed:r green:g blue:0 alpha:1].CGColor;
+            }
+
+            // ── BOX ───────────────────────────────────────────────────
             if (drawBoxes) {
                 CGRect rect = CGRectMake(sTop.x - bw/2, sTop.y, bw, bh);
                 if (esp_box_fill)
                     [boxFillPath appendPath:[UIBezierPath bezierPathWithRect:rect]];
                 if (esp_box_corner) {
                     float cw = bw/4, ch = bh/4;
-                    [boxPath moveToPoint:CGPointMake(rect.origin.x,      rect.origin.y+ch)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x,   rect.origin.y)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+cw,rect.origin.y)];
-                    [boxPath moveToPoint:CGPointMake(rect.origin.x+bw-cw,rect.origin.y)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw,rect.origin.y)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw,rect.origin.y+ch)];
-                    [boxPath moveToPoint:CGPointMake(rect.origin.x+bw,  rect.origin.y+bh-ch)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw,rect.origin.y+bh)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw-cw,rect.origin.y+bh)];
-                    [boxPath moveToPoint:CGPointMake(rect.origin.x+cw,  rect.origin.y+bh)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x,   rect.origin.y+bh)];
-                    [boxPath addLineToPoint:CGPointMake(rect.origin.x,   rect.origin.y+bh-ch)];
+                    [boxPath moveToPoint:CGPointMake(rect.origin.x,       rect.origin.y+ch)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x,    rect.origin.y)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+cw, rect.origin.y)];
+                    [boxPath moveToPoint:CGPointMake(rect.origin.x+bw-cw, rect.origin.y)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw, rect.origin.y)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw, rect.origin.y+ch)];
+                    [boxPath moveToPoint:CGPointMake(rect.origin.x+bw,   rect.origin.y+bh-ch)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw, rect.origin.y+bh)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x+bw-cw, rect.origin.y+bh)];
+                    [boxPath moveToPoint:CGPointMake(rect.origin.x+cw,   rect.origin.y+bh)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x,    rect.origin.y+bh)];
+                    [boxPath addLineToPoint:CGPointMake(rect.origin.x,    rect.origin.y+bh-ch)];
                     if (esp_box_outline) [boxOutlinePath appendPath:boxPath];
                 } else {
                     [boxPath appendPath:[UIBezierPath bezierPathWithRect:rect]];
-                    if (esp_box_outline) [boxOutlinePath appendPath:[UIBezierPath bezierPathWithRect:rect]];
+                    if (esp_box_outline)
+                        [boxOutlinePath appendPath:[UIBezierPath bezierPathWithRect:rect]];
                 }
+                // Apply HP color per-player — use separate layer per player is too slow,
+                // so we batch with white and let box_hp_color tint the whole layer.
+                // For per-player color we'd need separate paths; here we skip for perf.
             }
 
-            // ── LINES ─────────────────────────────────────────────────
+            // ── SNAPLINE ──────────────────────────────────────────────
+            if (esp_snapline_enabled) {
+                [snapOutPath moveToPoint:CGPointMake(cx, h)];
+                [snapOutPath addLineToPoint:CGPointMake(sFoot.x, sFoot.y)];
+                [snapPath   moveToPoint:CGPointMake(cx, h)];
+                [snapPath   addLineToPoint:CGPointMake(sFoot.x, sFoot.y)];
+            }
+
+            // ── LINES (top of screen → head) ──────────────────────────
             if (drawLines) {
-                [linesPath moveToPoint:CGPointMake(w/2, 0)];
+                [linesPath moveToPoint:CGPointMake(cx, 0)];
                 [linesPath addLineToPoint:CGPointMake(sHead.x, sHead.y)];
                 if (esp_line_outline) {
-                    [lineOutlinePath moveToPoint:CGPointMake(w/2, 0)];
+                    [lineOutlinePath moveToPoint:CGPointMake(cx, 0)];
                     [lineOutlinePath addLineToPoint:CGPointMake(sHead.x, sHead.y)];
                 }
             }
 
-            // ── HP BAR (EzTap style) ──────────────────────────────────
+            // ── HP BAR ────────────────────────────────────────────────
             if (esp_health_bar_enabled && maxHP > 0) {
                 float ratio  = fmaxf(0, fminf(1, (float)curHP/maxHP));
                 float barX   = sTop.x - bw/2 - 5;
                 float barTopY= sFoot.y - (bh * ratio);
-                float barBotY= sFoot.y;
-                [hpBarOutPath moveToPoint:CGPointMake(barX, barBotY)];
+                [hpBarOutPath moveToPoint:CGPointMake(barX, sFoot.y)];
                 [hpBarOutPath addLineToPoint:CGPointMake(barX, sTop.y)];
-                [hpBarPath moveToPoint:CGPointMake(barX, barBotY)];
-                [hpBarPath addLineToPoint:CGPointMake(barX, barTopY)];
+                [hpBarPath    moveToPoint:CGPointMake(barX, sFoot.y)];
+                [hpBarPath    addLineToPoint:CGPointMake(barX, barTopY)];
+            }
+
+            // ── DISTANCE label ────────────────────────────────────────
+            float labelY = sTop.y - 11.f;
+            if (esp_dist_label) {
+                UILabel *dLbl = LABEL_FROM_POOL(self.distLabelPool, distIdx); distIdx++;
+                int distInt = (int)dist;
+                dLbl.text = [NSString stringWithFormat:@"%dm", distInt];
+                dLbl.font = [UIFont systemFontOfSize:9 weight:UIFontWeightMedium];
+                dLbl.textColor = [UIColor colorWithWhite:0.9 alpha:1];
+                [dLbl sizeToFit];
+                dLbl.center = CGPointMake(sHead.x, labelY);
+                dLbl.hidden = NO;
+                labelY -= (dLbl.frame.size.height + 1.f);
             }
 
             // ── NAME ──────────────────────────────────────────────────
             if (esp_name_enabled) {
-                UILabel *lbl = nameIdx < self.nameLabelPool.count
-                    ? self.nameLabelPool[nameIdx]
-                    : ({ UILabel *n=[[UILabel alloc]init]; n.userInteractionEnabled=NO;
-                         [self addSubview:n]; [self.nameLabelPool addObject:n]; n; });
-                nameIdx++;
+                UILabel *lbl = LABEL_FROM_POOL(self.nameLabelPool, nameIdx); nameIdx++;
                 uint64_t namePtr = Read<uint64_t>(player + 0x3C0, task);
                 NSString *name = @"?";
                 if (namePtr > 0x1000000) {
@@ -496,29 +565,120 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
                         NSStrokeWidthAttributeName:@(-2.0)
                     }];
                 } else {
-                    lbl.font=      [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
-                    lbl.text=      name;
-                    lbl.textColor= [UIColor whiteColor];
+                    lbl.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+                    lbl.text = name;
+                    lbl.textColor = [UIColor whiteColor];
                 }
                 [lbl sizeToFit];
-                lbl.center = CGPointMake(sHead.x, sTop.y - 10);
+                lbl.center = CGPointMake(sHead.x, labelY);
                 lbl.hidden = NO;
+                labelY -= (lbl.frame.size.height + 1.f);
+            }
+
+            // ── STATUS (knocked) ──────────────────────────────────────
+            if (esp_knocked_status && knocked) {
+                UILabel *sLbl = LABEL_FROM_POOL(self.statusLabelPool, statusIdx); statusIdx++;
+                sLbl.text = @"KNOCKED";
+                sLbl.font = [UIFont systemFontOfSize:9 weight:UIFontWeightBlack];
+                sLbl.textColor = [UIColor colorWithRed:1 green:0.4 blue:0 alpha:1];
+                [sLbl sizeToFit];
+                sLbl.center = CGPointMake(sHead.x, labelY);
+                sLbl.hidden = NO;
+                labelY -= (sLbl.frame.size.height + 1.f);
             }
 
             // ── HP TEXT ───────────────────────────────────────────────
             if (esp_health_enabled && maxHP > 0) {
-                UILabel *hpL = hpIdx < self.healthLabelPool.count
-                    ? self.healthLabelPool[hpIdx]
-                    : ({ UILabel *n=[[UILabel alloc]init]; n.userInteractionEnabled=NO;
-                         [self addSubview:n]; [self.healthLabelPool addObject:n]; n; });
-                hpIdx++;
+                UILabel *hpL = LABEL_FROM_POOL(self.healthLabelPool, hpIdx); hpIdx++;
                 hpL.text      = [NSString stringWithFormat:@"%d", knocked?0:curHP];
                 hpL.font      = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
                 hpL.textColor = [UIColor whiteColor];
                 [hpL sizeToFit];
-                hpL.center = CGPointMake(sHead.x - bw/2 - hpL.frame.size.width/2 - 2,
+                hpL.center = CGPointMake(sTop.x - bw/2 - hpL.frame.size.width/2 - 2,
                                          sTop.y + hpL.frame.size.height/2);
                 hpL.hidden = NO;
+            }
+
+            // ── INVENTORY label ───────────────────────────────────────
+            // Format: [H2 A3|87%] AK 28/30  🧨x2 💊x1
+            if (esp_inventory_enabled) {
+                UILabel *invLbl = LABEL_FROM_POOL(self.inventoryLabelPool, invIdx); invIdx++;
+
+                NSMutableString *invStr = [NSMutableString string];
+
+                // Helmet level
+                if (pInfo.helmetLevel > 0)
+                    [invStr appendFormat:@"H%d ", pInfo.helmetLevel];
+                else
+                    [invStr appendString:@"H- "];
+
+                // Armor level + durability %
+                if (pInfo.armorLevel > 0 && pInfo.armorMaxDurability > 0) {
+                    int durPct = (int)(100.f * pInfo.armorDurability / pInfo.armorMaxDurability);
+                    [invStr appendFormat:@"A%d %d%%  ", pInfo.armorLevel, durPct];
+                } else {
+                    [invStr appendString:@"A-  "];
+                }
+
+                // Weapon + ammo
+                if (pInfo.weaponName[0] != '\0') {
+                    [invStr appendFormat:@"%s", pInfo.weaponName];
+                    if (pInfo.ammoInClip > 0)
+                        [invStr appendFormat:@" %d", pInfo.ammoInClip];
+                    [invStr appendString:@"  "];
+                }
+
+                // Grenades & medkits
+                if (pInfo.grenadeCount > 0)
+                    [invStr appendFormat:@"G%d ", pInfo.grenadeCount];
+                if (pInfo.medkitCount > 0)
+                    [invStr appendFormat:@"M%d", pInfo.medkitCount];
+
+                invLbl.text = invStr;
+                invLbl.font = [UIFont monospacedSystemFontOfSize:8 weight:UIFontWeightRegular];
+                invLbl.textColor = [UIColor colorWithRed:0.9 green:0.95 blue:1 alpha:0.9];
+                [invLbl sizeToFit];
+                // Place below box bottom
+                invLbl.center = CGPointMake(sHead.x, sFoot.y + invLbl.frame.size.height/2 + 2);
+                invLbl.hidden = NO;
+            }
+
+            // ── SKILLS label ──────────────────────────────────────────
+            // Format: [Skill1 CD:3.2s] [Skill2 ▶]
+            if (esp_skills_enabled && pInfo.skillCount > 0) {
+                UILabel *skLbl = LABEL_FROM_POOL(self.skillLabelPool, skillIdx); skillIdx++;
+                NSMutableString *skStr = [NSMutableString string];
+
+                // Use system time estimate: m_CdEndTime is game-time based
+                // We use cdEnd - cdStart as total CD, compare ratio for display
+                for (int si = 0; si < pInfo.skillCount; si++) {
+                    float cdEnd   = pInfo.skillCdEnd[si];
+                    float cdStart = pInfo.skillCdStart[si];
+                    float totalCD = cdEnd - cdStart;
+
+                    if (si > 0) [skStr appendString:@" | "];
+
+                    // Skill name (truncate to 8 chars)
+                    char shortName[9] = {};
+                    strncpy(shortName, pInfo.skillName[si], 8);
+
+                    if (pInfo.skillCasting[si]) {
+                        [skStr appendFormat:@"%s ▶", shortName];
+                    } else if (totalCD > 0.1f) {
+                        // CD remaining — display total CD as hint
+                        [skStr appendFormat:@"%s CD:%.0fs", shortName, totalCD];
+                    } else {
+                        [skStr appendFormat:@"%s ✓", shortName];
+                    }
+                }
+
+                skLbl.text = skStr;
+                skLbl.font = [UIFont monospacedSystemFontOfSize:8 weight:UIFontWeightRegular];
+                skLbl.textColor = [UIColor colorWithRed:0.4 green:1 blue:0.8 alpha:0.9];
+                [skLbl sizeToFit];
+                float skY = sFoot.y + (esp_inventory_enabled ? 22.f : 4.f) + skLbl.frame.size.height/2;
+                skLbl.center = CGPointMake(sHead.x, skY);
+                skLbl.hidden = NO;
             }
 
             // ── Aimbot candidate ──────────────────────────────────────
@@ -539,7 +699,9 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
             }
         }
 
-        // ── Commit (EzTap exact) ──────────────────────────────────────
+        #undef LABEL_FROM_POOL
+
+        // ── Commit all layers ─────────────────────────────────────────
         [CATransaction begin]; [CATransaction setDisableActions:YES];
         self.espBoxFillLayer.path          = (drawBoxes && esp_box_fill) ? boxFillPath.CGPath : nil;
         self.espBoxLayer.path              = drawBoxes ? boxPath.CGPath : nil;
@@ -548,18 +710,23 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
         self.espLineOutlineLayer.path      = (drawLines && esp_line_outline) ? lineOutlinePath.CGPath : nil;
         self.espHealthBarLayer.path        = esp_health_bar_enabled ? hpBarPath.CGPath : nil;
         self.espHealthBarOutlineLayer.path = (esp_health_bar_enabled && esp_health_bar_outline) ? hpBarOutPath.CGPath : nil;
+        self.snapLineLayer.path            = esp_snapline_enabled ? snapPath.CGPath : nil;
+        self.snapLineOutlineLayer.path     = esp_snapline_enabled ? snapOutPath.CGPath : nil;
+
+        // Per-player HP box color — tint entire box layer
+        if (esp_box_hp_color && validPlayers > 0) {
+            // Single-colour tint: use average of players not practical with batch path
+            // Set layer color to orange as neutral readable tint when hp_color on
+            self.espBoxLayer.strokeColor = [UIColor colorWithRed:1 green:0.6 blue:0 alpha:1].CGColor;
+        } else {
+            self.espBoxLayer.strokeColor = [UIColor whiteColor].CGColor;
+        }
+
         [CATransaction commit];
         [CATransaction flush];
 
-        // ── Aimbot — throttle 50ms чтобы не банило ──────────────────
-        static double lastAimWrite = 0;
-        double nowAim = CACurrentMediaTime();
-        if (closestPlayer && (aimbot_enabled || aimbot_triggerbot) && nowAim - lastAimWrite > 0.05) {
-            lastAimWrite = nowAim;
-            [self runAimbot:localPlayer target:closestPlayer targetPos:closestPos task:task matrix:matrix w:w h:h];
-        } else if (!closestPlayer) {
+        if (!closestPlayer)
             self.aimbotCurrentTarget = 0;
-        }
 
         self.watermarkLabel.text = [NSString stringWithFormat:@(OBF("Players: %d | t.me/g1reev7")), validPlayers];
         [self.watermarkLabel sizeToFit];
@@ -570,83 +737,6 @@ CLEAR_BOXES:
     [self clearAllBoxes];
     self.watermarkLabel.text = @(OBF("FF ESP | t.me/g1reev7"));
     [self.watermarkLabel sizeToFit];
-}
-
-// ─── Aimbot — EzTap style, читаем текущий угол из памяти ────────────────────
-- (void)runAimbot:(uint64_t)me
-           target:(uint64_t)target
-        targetPos:(Vector3)targetPos
-             task:(task_t)task
-           matrix:(float *)matrix
-                w:(CGFloat)w h:(CGFloat)h {
-
-    // FOV circle
-    [CATransaction begin]; [CATransaction setDisableActions:YES];
-    if (aimbot_fov_visible) {
-        CGPoint center = CGPointMake(w/2, h/2);
-        CGFloat r = aimbot_fov;
-        UIBezierPath *fp = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(center.x-r,center.y-r,r*2,r*2)];
-        self.fovCircleOutlineLayer.path = fp.CGPath;
-        self.fovCircleLayer.path        = fp.CGPath;
-        self.fovCircleOutlineLayer.hidden = NO;
-        self.fovCircleLayer.hidden        = NO;
-    }
-    [CATransaction commit];
-
-    if (!aimbot_enabled) return;
-
-    // Camera position
-    uint64_t camT  = Read<uint64_t>(me + OFF_CAMERA_TRANSFORM, task);
-    Vector3  camPos = camT > 0x1000000 ? ff_getPosition(camT, task) : (Vector3){0,0,0};
-
-    float dx = targetPos.x - camPos.x;
-    float dy = targetPos.y - camPos.y;
-    float dz = targetPos.z - camPos.z;
-    float dist = sqrtf(dx*dx + dy*dy + dz*dz);
-    if (dist < 0.001f) return;
-
-    float tPitch = -asinf(fmaxf(-1.f, fminf(1.f, dy/dist))) * (180.f/M_PI);
-    float tYaw   =  atan2f(dx, dz) * (180.f/M_PI);
-
-    // Читаем текущий Quaternion → Euler для плавной интерполяции
-    Quaternion q = Read<Quaternion>(me + OFF_ROTATION, task);
-    float sinP = 2.f*(q.w*q.x - q.y*q.z);
-    float cPitch = asinf(fmaxf(-1.f, fminf(1.f, sinP))) * (180.f/M_PI);
-    float sinY   = 2.f*(q.w*q.y + q.z*q.x);
-    float cosY   = 1.f - 2.f*(q.y*q.y + q.z*q.z);
-    float cYaw   = atan2f(sinY, cosY) * (180.f/M_PI);
-
-    float newPitch, newYaw;
-    if (aimbot_smooth <= 1.0f) {
-        newPitch = fmaxf(-89.f, fminf(89.f, tPitch));
-        newYaw   = tYaw;
-    } else {
-        // EzTap smooth formula
-        float s = 1.0f / (1.0f + aimbot_smooth * 0.5f);
-        s = fmaxf(0.03f, fminf(s, 1.0f));
-        float dp  = tPitch - cPitch;
-        float dy2 = tYaw   - cYaw;
-        while (dy2 >  180.f) dy2 -= 360.f;
-        while (dy2 < -180.f) dy2 += 360.f;
-        newPitch = fmaxf(-89.f, fminf(89.f, cPitch + dp  * s));
-        newYaw   = cYaw + dy2 * s;
-    }
-
-    // Euler → Quaternion
-    float pr = newPitch * (M_PI/180.f) * 0.5f;
-    float yr = newYaw   * (M_PI/180.f) * 0.5f;
-    Quaternion rot;
-    rot.x =  sinf(pr)*cosf(yr);
-    rot.y =  cosf(pr)*sinf(yr);
-    rot.z = -sinf(pr)*sinf(yr);
-    rot.w =  cosf(pr)*cosf(yr);
-
-    // Пишем только камеру (OFF_ROTATION), не пулю (OFF_ROTATION2)
-    // OFF_ROTATION2 верифицируется сервером — писать туда = бан
-    Write<Quaternion>(me + OFF_ROTATION, rot, task);
-
-    self.aimbotCurrentTarget    = target;
-    self.aimbotLastWriteTime    = CACurrentMediaTime();
 }
 
 - (void)launchGame {
