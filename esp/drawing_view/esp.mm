@@ -546,7 +546,7 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
             // ── NAME ──────────────────────────────────────────────────
             if (esp_name_enabled) {
                 UILabel *lbl = LABEL_FROM_POOL(self.nameLabelPool, nameIdx); nameIdx++;
-                uint64_t namePtr = Read<uint64_t>(player + 0x3C0, task);
+                uint64_t namePtr = Read<uint64_t>(player + OFF_PLAYER_NAME, task);
                 NSString *name = @"?";
                 if (namePtr > 0x1000000) {
                     int len = Read<int>(namePtr+0x10, task);
