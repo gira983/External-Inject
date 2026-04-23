@@ -8,7 +8,7 @@
 // ============================================================
 
 // GameFacade (статик — найди через IDA, меняется каждый патч)
-#define OFF_GAMEFACADE_TI       0xA984D48   // TODO: обнови через IDA для ob53
+#define OFF_GAMEFACADE_TI       0xAFF1A58   // TODO: обнови через IDA для ob53
 #define OFF_GAMEFACADE_ST       0xB8
 
 // MatchGame chain (не изменились)
