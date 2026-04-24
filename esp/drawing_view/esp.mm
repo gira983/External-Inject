@@ -288,7 +288,7 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
     static task_t            cached_task = 0;
     static mach_vm_address_t cached_base = 0;
 
-    pid_t ff_pid = get_pid_by_name(OBF("freefireth"));
+    pid_t ff_pid = get_pid_by_name(OBF("FreeFire"));
 
     if (ff_pid <= 0) {
         cached_pid = 0; cached_task = 0; cached_base = 0;
