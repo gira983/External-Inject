@@ -305,13 +305,7 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
     if (ff_pid != cached_pid || !cached_task || !cached_base) {
         cached_task = get_task_by_pid(ff_pid);
         if (cached_task) {
-            mach_vm_address_t vmoff = 0, vmsz = 0;
-            uint32_t depth = 0;
-            struct vm_region_submap_info_64 vbr;
-            mach_msg_type_number_t cnt = 16;
-            if (mach_vm_region_recurse(cached_task, &vmoff, &vmsz,
-                                       &depth, (vm_region_recurse_info_t)&vbr, &cnt) == KERN_SUCCESS)
-                cached_base = vmoff;
+            cached_base = get_image_base_address(cached_task, "UnityFramework");
         }
         cached_pid = ff_pid;
     }
