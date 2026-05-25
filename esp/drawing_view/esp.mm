@@ -305,7 +305,11 @@ static Vector3 WorldToScreen(Vector3 obj, float *m, CGFloat W, CGFloat H) {
     if (ff_pid != cached_pid || !cached_task || !cached_base) {
         cached_task = get_task_by_pid(ff_pid);
         if (cached_task) {
-            cached_base = get_image_base_address(cached_task, "UnityFramework");
+            // Игра переехала в UnityFramework после обновления
+            mach_vm_address_t unity_base = get_image_base_address(cached_task,
+                "Frameworks/UnityFramework.framework/UnityFramework");
+            if (unity_base)
+                cached_base = unity_base;
         }
         cached_pid = ff_pid;
     }
